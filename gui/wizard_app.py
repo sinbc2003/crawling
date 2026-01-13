@@ -30,8 +30,8 @@ class WizardCrawlerApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("🕷️ AI 웹 크롤러 - 쉬운 단계별 가이드")
-        self.root.geometry("1100x750")
+        self.root.title("🕷️ AI 웹 크롤러 - 프로젝트 관리")
+        self.root.geometry("1400x800")
 
         # 상태 변수
         self.config = self.load_config()
@@ -40,6 +40,7 @@ class WizardCrawlerApp:
         self.vision_detector: Optional[VisionDetector] = None
         self.strategy_manager = StrategyManager()
         self.current_strategy: Optional[Dict] = None
+        self.current_project: Optional[Dict] = None
         self.extracted_data: List[Dict] = []
         self.current_step = 0
 
@@ -47,11 +48,15 @@ class WizardCrawlerApp:
         self.use_detail_extraction = tk.BooleanVar(value=False)
         self.use_vision_analysis = tk.BooleanVar(value=False)
 
+        # 프로젝트 리스트박스 참조
+        self.project_listbox = None
+
         # GUI 생성
-        self.create_wizard()
+        self.create_ui()
 
         # 초기화
         self.initialize_llm()
+        self.load_projects()
 
     def load_config(self) -> Dict:
         """설정 파일 로드"""
@@ -86,17 +91,32 @@ class WizardCrawlerApp:
             logger.error(f"설정 저장 실패: {e}")
             return False
 
-    def create_wizard(self):
-        """위저드 스타일 GUI 생성"""
+    def create_ui(self):
+        """사이드바가 있는 UI 생성"""
+        # 메인 컨테이너 (좌우 분할)
+        main_container = ttk.Frame(self.root)
+        main_container.pack(fill=tk.BOTH, expand=True)
+
+        # 좌측: 프로젝트 사이드바
+        self.create_sidebar(main_container)
+
+        # 구분선
+        separator = ttk.Separator(main_container, orient=tk.VERTICAL)
+        separator.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+
+        # 우측: 메인 영역 (기존 wizard)
+        right_container = ttk.Frame(main_container)
+        right_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         # 상단: 단계 표시
-        self.create_step_indicator()
+        self.create_step_indicator(right_container)
 
         # 중앙: 메인 컨텐츠 영역
-        self.content_frame = ttk.Frame(self.root)
+        self.content_frame = ttk.Frame(right_container)
         self.content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
         # 하단: 네비게이션 버튼
-        self.create_navigation()
+        self.create_navigation(right_container)
 
         # 상태바
         self.status_var = tk.StringVar(value="준비")
@@ -106,9 +126,104 @@ class WizardCrawlerApp:
         # 첫 번째 단계 표시
         self.show_step(0)
 
-    def create_step_indicator(self):
+    def create_wizard(self):
+        """하위 호환성을 위한 별칭"""
+        self.create_ui()
+
+    def create_sidebar(self, parent):
+        """프로젝트 사이드바 생성"""
+        sidebar = ttk.Frame(parent, width=280)
+        sidebar.pack(side=tk.LEFT, fill=tk.BOTH, padx=5, pady=5)
+        sidebar.pack_propagate(False)  # 고정 너비 유지
+
+        # 헤더
+        header_frame = ttk.Frame(sidebar)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(
+            header_frame,
+            text="📁 저장된 프로젝트",
+            font=("", 12, "bold")
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 새 프로젝트 버튼
+        ttk.Button(
+            header_frame,
+            text="+",
+            width=3,
+            command=self.new_project
+        ).pack(side=tk.RIGHT, padx=2)
+
+        # 검색 바
+        search_frame = ttk.Frame(sidebar)
+        search_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', lambda *args: self.filter_projects())
+
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+        search_entry.pack(fill=tk.X, padx=5)
+        search_entry.insert(0, "🔍 검색...")
+        search_entry.bind('<FocusIn>', lambda e: search_entry.delete(0, tk.END) if search_entry.get() == "🔍 검색..." else None)
+
+        # 프로젝트 리스트
+        list_frame = ttk.Frame(sidebar)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=5)
+
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.project_listbox = tk.Listbox(
+            list_frame,
+            yscrollcommand=scrollbar.set,
+            font=("", 10),
+            selectmode=tk.SINGLE,
+            activestyle='none',
+            relief=tk.FLAT,
+            highlightthickness=0
+        )
+        self.project_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.project_listbox.yview)
+
+        # 프로젝트 선택 이벤트
+        self.project_listbox.bind('<<ListboxSelect>>', self.on_project_select)
+        self.project_listbox.bind('<Double-Button-1>', lambda e: self.edit_project())
+
+        # 프로젝트 관리 버튼
+        button_frame = ttk.Frame(sidebar)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        ttk.Button(
+            button_frame,
+            text="✏️ 편집",
+            command=self.edit_project,
+            width=8
+        ).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+
+        ttk.Button(
+            button_frame,
+            text="🗑️ 삭제",
+            command=self.delete_project,
+            width=8
+        ).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+
+        # 현재 프로젝트 정보 표시
+        info_frame = ttk.LabelFrame(sidebar, text="ℹ️ 프로젝트 정보", padding=10)
+        info_frame.pack(fill=tk.X, pady=(10, 0))
+
+        self.project_info_label = ttk.Label(
+            info_frame,
+            text="프로젝트를 선택하세요",
+            font=("", 9),
+            foreground="gray",
+            wraplength=250,
+            justify=tk.LEFT
+        )
+        self.project_info_label.pack(anchor=tk.W)
+
+    def create_step_indicator(self, parent):
         """단계 표시 바 생성"""
-        indicator_frame = ttk.Frame(self.root, relief=tk.RAISED, borderwidth=1)
+        indicator_frame = ttk.Frame(parent, relief=tk.RAISED, borderwidth=1)
         indicator_frame.pack(fill=tk.X, pady=(0, 10))
 
         self.step_labels = []
@@ -145,9 +260,9 @@ class WizardCrawlerApp:
             else:
                 label.config(foreground="gray", font=("", 10))
 
-    def create_navigation(self):
+    def create_navigation(self, parent):
         """네비게이션 버튼 생성"""
-        nav_frame = ttk.Frame(self.root)
+        nav_frame = ttk.Frame(parent)
         nav_frame.pack(fill=tk.X, padx=20, pady=10)
 
         self.prev_button = ttk.Button(
@@ -469,22 +584,16 @@ class WizardCrawlerApp:
             variable=self.use_vision_analysis
         ).pack(side=tk.LEFT, padx=5)
 
-        # 전략 관리 버튼
-        strategy_frame = ttk.Frame(option_frame)
-        strategy_frame.pack(fill=tk.X, pady=10)
+        # 안내 메시지
+        info_frame = ttk.Frame(option_frame)
+        info_frame.pack(fill=tk.X, pady=10)
 
-        ttk.Label(strategy_frame, text="💾 전략 관리:", font=("", 10, "bold")).pack(side=tk.LEFT, padx=5)
-        ttk.Button(
-            strategy_frame,
-            text="불러오기",
-            command=self.load_strategy,
-            width=12
-        ).pack(side=tk.LEFT, padx=5)
-        ttk.Button(
-            strategy_frame,
-            text="저장",
-            command=self.save_strategy,
-            width=12
+        ttk.Label(
+            info_frame,
+            text="💡 크롤링 성공 후 좌측 사이드바에서 '+ 버튼'을 눌러 프로젝트로 저장하세요",
+            font=("", 9),
+            foreground="blue",
+            wraplength=800
         ).pack(side=tk.LEFT, padx=5)
 
         # 실행 버튼
@@ -1091,6 +1200,244 @@ class WizardCrawlerApp:
                 messagebox.showerror("오류", f"전략 불러오기 실패: {e}")
 
         ttk.Button(button_frame, text="불러오기", command=load_selected, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="취소", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+    # === 프로젝트 관리 기능 ===
+
+    def load_projects(self):
+        """저장된 프로젝트 목록 불러오기"""
+        if not self.project_listbox:
+            return
+
+        self.project_listbox.delete(0, tk.END)
+        strategies = self.strategy_manager.list_strategies()
+
+        for strategy in strategies:
+            display_name = f"📌 {strategy['name']}"
+            self.project_listbox.insert(tk.END, display_name)
+
+        if strategies:
+            self.project_listbox.itemconfig(0, bg='#e3f2fd')
+
+    def filter_projects(self):
+        """프로젝트 검색 필터"""
+        if not self.project_listbox:
+            return
+
+        keyword = self.search_var.get().strip()
+        if keyword == "🔍 검색..." or not keyword:
+            self.load_projects()
+            return
+
+        self.project_listbox.delete(0, tk.END)
+        strategies = self.strategy_manager.search_strategies(keyword)
+
+        for strategy in strategies:
+            display_name = f"📌 {strategy['name']}"
+            self.project_listbox.insert(tk.END, display_name)
+
+    def on_project_select(self, event):
+        """프로젝트 선택 이벤트"""
+        selection = self.project_listbox.curselection()
+        if not selection:
+            return
+
+        idx = selection[0]
+        strategies = self.strategy_manager.list_strategies()
+
+        if idx < len(strategies):
+            project = strategies[idx]
+            self.current_project = project
+
+            # 프로젝트 정보 표시
+            info_text = f"📛 이름: {project['name']}\n"
+            info_text += f"🌐 URL: {project['url'][:50]}...\n"
+            info_text += f"📅 생성일: {project['created_at'][:10]}\n"
+            if project.get('notes'):
+                info_text += f"\n📝 메모:\n{project['notes']}"
+
+            self.project_info_label.config(text=info_text)
+
+            # 전략 자동 로드
+            try:
+                strategy_data = self.strategy_manager.load_strategy(project['filepath'])
+                self.current_strategy = strategy_data['strategy']
+                self.log(f"✅ 프로젝트 로드: {project['name']}")
+            except Exception as e:
+                logger.error(f"프로젝트 로드 실패: {e}")
+
+    def new_project(self):
+        """새 프로젝트 생성"""
+        if not self.browser_connector:
+            messagebox.showwarning("알림", "먼저 브라우저를 연결한 후 크롤링을 실행하세요")
+            return
+
+        if not self.current_strategy:
+            messagebox.showwarning("알림", "먼저 크롤링을 실행하여 전략을 생성하세요")
+            return
+
+        self.save_strategy_dialog(is_new=True)
+
+    def edit_project(self):
+        """프로젝트 편집"""
+        if not self.current_project:
+            messagebox.showwarning("알림", "편집할 프로젝트를 선택하세요")
+            return
+
+        self.save_strategy_dialog(is_new=False)
+
+    def delete_project(self):
+        """프로젝트 삭제"""
+        if not self.current_project:
+            messagebox.showwarning("알림", "삭제할 프로젝트를 선택하세요")
+            return
+
+        if not messagebox.askyesno("확인", f"'{self.current_project['name']}' 프로젝트를 삭제하시겠습니까?"):
+            return
+
+        try:
+            self.strategy_manager.delete_strategy(self.current_project['filepath'])
+            messagebox.showinfo("완료", "프로젝트가 삭제되었습니다")
+            self.load_projects()
+            self.current_project = None
+            self.project_info_label.config(text="프로젝트를 선택하세요")
+        except Exception as e:
+            messagebox.showerror("오류", f"프로젝트 삭제 실패: {e}")
+
+    def save_strategy_dialog(self, is_new=True):
+        """전략 저장 다이얼로그"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("프로젝트 저장" if is_new else "프로젝트 편집")
+        dialog.geometry("600x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 프레임
+        main_frame = ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 제목
+        ttk.Label(
+            main_frame,
+            text="💾 프로젝트 정보" if is_new else "✏️ 프로젝트 편집",
+            font=("", 14, "bold")
+        ).pack(pady=(0, 20))
+
+        # 프로젝트 이름
+        name_frame = ttk.Frame(main_frame)
+        name_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(name_frame, text="프로젝트 이름:", font=("", 10, "bold"), width=15).pack(side=tk.LEFT)
+        name_entry = ttk.Entry(name_frame, font=("", 10))
+        name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        if not is_new and self.current_project:
+            name_entry.insert(0, self.current_project['name'])
+
+        # URL (자동 입력, 수정 불가)
+        url_frame = ttk.Frame(main_frame)
+        url_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(url_frame, text="URL:", font=("", 10, "bold"), width=15).pack(side=tk.LEFT)
+        url_entry = ttk.Entry(url_frame, font=("", 9), state='readonly')
+        url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        if is_new and self.browser_connector:
+            url_entry.config(state='normal')
+            url_entry.insert(0, self.browser_connector.page.url)
+            url_entry.config(state='readonly')
+        elif not is_new and self.current_project:
+            url_entry.config(state='normal')
+            url_entry.insert(0, self.current_project['url'])
+            url_entry.config(state='readonly')
+
+        # 설명
+        desc_frame = ttk.Frame(main_frame)
+        desc_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(desc_frame, text="설명:", font=("", 10, "bold"), width=15).pack(side=tk.LEFT, anchor=tk.N)
+        desc_text = tk.Text(desc_frame, height=3, wrap=tk.WORD, font=("", 9))
+        desc_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        if not is_new and self.current_project:
+            desc_text.insert("1.0", self.current_project.get('description', ''))
+
+        # 메모 (비고)
+        notes_frame = ttk.Frame(main_frame)
+        notes_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        ttk.Label(notes_frame, text="📝 메모 (비고):", font=("", 10, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(
+            notes_frame,
+            text="크롤링 목적, 주의사항 등을 자유롭게 메모하세요",
+            font=("", 8),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+
+        notes_text = scrolledtext.ScrolledText(notes_frame, height=8, wrap=tk.WORD, font=("", 9))
+        notes_text.pack(fill=tk.BOTH, expand=True)
+
+        if not is_new and self.current_project:
+            notes_text.insert("1.0", self.current_project.get('notes', ''))
+
+        # 태그
+        tag_frame = ttk.Frame(main_frame)
+        tag_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(tag_frame, text="태그 (,로 구분):", font=("", 10, "bold"), width=15).pack(side=tk.LEFT)
+        tag_entry = ttk.Entry(tag_frame, font=("", 9))
+        tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        if not is_new and self.current_project:
+            tags = self.current_project.get('tags', [])
+            tag_entry.insert(0, ", ".join(tags))
+
+        # 버튼
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(pady=(20, 0))
+
+        def save():
+            name = name_entry.get().strip()
+            if not name:
+                messagebox.showerror("오류", "프로젝트 이름을 입력하세요")
+                return
+
+            description = desc_text.get("1.0", tk.END).strip()
+            notes = notes_text.get("1.0", tk.END).strip()
+            tags_str = tag_entry.get().strip()
+            tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+
+            try:
+                if is_new:
+                    # 새 프로젝트 저장
+                    url = self.browser_connector.page.url
+                    self.strategy_manager.save_strategy(
+                        url=url,
+                        strategy=self.current_strategy,
+                        name=name,
+                        description=description,
+                        tags=tags,
+                        notes=notes
+                    )
+                    messagebox.showinfo("완료", "프로젝트가 저장되었습니다!")
+                else:
+                    # 기존 프로젝트 업데이트
+                    self.strategy_manager.update_strategy(
+                        filepath=self.current_project['filepath'],
+                        name=name,
+                        description=description,
+                        tags=tags,
+                        notes=notes
+                    )
+                    messagebox.showinfo("완료", "프로젝트가 업데이트되었습니다!")
+
+                self.load_projects()
+                dialog.destroy()
+
+            except Exception as e:
+                messagebox.showerror("오류", f"저장 실패: {e}")
+
+        ttk.Button(button_frame, text="💾 저장", command=save, width=15).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="취소", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
 
     def log(self, message: str):

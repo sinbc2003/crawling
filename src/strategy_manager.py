@@ -36,7 +36,8 @@ class StrategyManager:
         strategy: Dict,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        notes: Optional[str] = None
     ) -> str:
         """
         크롤링 전략 저장
@@ -70,6 +71,7 @@ class StrategyManager:
             "domain": domain,
             "description": description or f"{domain} 크롤링 전략",
             "tags": tags or [],
+            "notes": notes or "",
             "created_at": datetime.now().isoformat(),
             "strategy": strategy
         }
@@ -153,6 +155,7 @@ class StrategyManager:
                         "domain": strategy_data.get('domain'),
                         "description": strategy_data.get('description'),
                         "tags": strategy_data.get('tags', []),
+                        "notes": strategy_data.get('notes', ''),
                         "created_at": strategy_data.get('created_at')
                     }
                     strategies.append(metadata)
@@ -220,7 +223,8 @@ class StrategyManager:
         strategy: Optional[Dict] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        notes: Optional[str] = None
     ) -> bool:
         """
         기존 전략 업데이트
@@ -251,6 +255,9 @@ class StrategyManager:
 
             if tags is not None:
                 strategy_data['tags'] = tags
+
+            if notes is not None:
+                strategy_data['notes'] = notes
 
             strategy_data['updated_at'] = datetime.now().isoformat()
 
