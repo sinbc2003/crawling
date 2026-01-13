@@ -140,14 +140,17 @@ Export (JSON/CSV/Excel)
 
 ## 📚 문서
 
-- **[PRACTICAL_GUIDE.md](PRACTICAL_GUIDE.md)**: ⭐ 실전 사용 가이드 (필수!)
+- **[BEGINNER_GUIDE.md](BEGINNER_GUIDE.md)**: 🔰 초보자 가이드 (코딩 몰라도 OK!)
+  - 5분만에 시작하기
+  - 단계별 설명 (스크린샷 설명 포함)
+  - 자주 묻는 질문
+  - 문제 해결 가이드
+- **[PRACTICAL_GUIDE.md](PRACTICAL_GUIDE.md)**: ⭐ 실전 사용 가이드
   - 게시판 크롤링 실전 예시
   - 드롭다운/필터 처리 방법
   - 로그인 사이트 작업 플로우
-  - 자주 묻는 질문 (FAQ)
 - **[HOW_IT_WORKS.md](HOW_IT_WORKS.md)**: 상세 작동 원리 및 EXE 빌드 가이드
 - **[USAGE_GUIDE.md](USAGE_GUIDE.md)**: 사용 방법 및 예시
-- **[README.md](README.md)**: 프로젝트 개요 (이 파일)
 
 ## 📦 EXE 파일 빌드
 
