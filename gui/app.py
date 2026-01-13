@@ -525,21 +525,27 @@ google-chrome --remote-debugging-port=9222
             messagebox.showerror("오류", "크롤링 요청을 입력하세요")
             return
 
-        threading.Thread(target=self._generate_strategy_thread, args=(request,), daemon=True).start()
-
-    def _generate_strategy_thread(self, request: str):
-        """전략 생성 (백그라운드)"""
+        # Playwright는 thread-safe하지 않으므로, 메인 스레드에서 HTML 추출
+        self.status_var.set("페이지 HTML 추출 중...")
         try:
-            self.root.after(0, lambda: self.status_var.set("페이지 분석 중..."))
-
-            # DOM 추출
             extractor = DOMExtractor(self.browser_connector.page)
             page_html = extractor.get_full_html()
+            self.log("페이지 HTML 추출 완료")
+        except Exception as e:
+            messagebox.showerror("오류", f"HTML 추출 실패: {e}")
+            logger.error(f"HTML 추출 실패: {e}")
+            return
 
+        # HTML 문자열을 백그라운드 스레드로 전달
+        threading.Thread(target=self._generate_strategy_thread, args=(request, page_html), daemon=True).start()
+
+    def _generate_strategy_thread(self, request: str, page_html: str):
+        """전략 생성 (백그라운드) - HTML 문자열만 사용"""
+        try:
             self.log("LLM 분석 중...")
             self.root.after(0, lambda: self.status_var.set("LLM 분석 중..."))
 
-            # LLM 분석
+            # LLM 분석 (HTML 문자열만 사용, Playwright 객체 사용 안 함)
             strategy = self.llm_analyzer.generate_selectors_from_html(page_html, request)
             self.current_strategy = strategy
 
@@ -616,25 +622,46 @@ google-chrome --remote-debugging-port=9222
             messagebox.showerror("오류", "크롤링 요청을 입력하세요")
             return
 
-        threading.Thread(target=self._run_full_crawling_thread, args=(request,), daemon=True).start()
-
-    def _run_full_crawling_thread(self, request: str):
-        """전체 크롤링 (백그라운드)"""
+        # Playwright는 thread-safe하지 않으므로, 메인 스레드에서 HTML 추출
+        self.status_var.set("페이지 HTML 추출 중...")
         try:
-            # 1. 전략 생성
-            self._generate_strategy_thread(request)
+            extractor = DOMExtractor(self.browser_connector.page)
+            page_html = extractor.get_full_html()
+            self.log("페이지 HTML 추출 완료")
+        except Exception as e:
+            messagebox.showerror("오류", f"HTML 추출 실패: {e}")
+            logger.error(f"HTML 추출 실패: {e}")
+            return
 
-            # 잠시 대기
+        # 백그라운드 스레드로 전체 크롤링 실행
+        threading.Thread(target=self._run_full_crawling_thread, args=(request, page_html), daemon=True).start()
+
+    def _run_full_crawling_thread(self, request: str, page_html: str):
+        """전체 크롤링 (백그라운드) - HTML 문자열 사용"""
+        try:
+            # 1. 전략 생성 (HTML 문자열 사용)
+            self._generate_strategy_thread(request, page_html)
+
+            # 전략 생성이 완료될 때까지 대기
             import time
-            time.sleep(1)
+            max_wait = 60  # 최대 60초 대기
+            waited = 0
+            while not self.current_strategy and waited < max_wait:
+                time.sleep(0.5)
+                waited += 0.5
+
+            if not self.current_strategy:
+                self.root.after(0, lambda: messagebox.showerror("오류", "전략 생성 시간 초과"))
+                return
 
             # 2. 데이터 추출
-            if self.current_strategy:
-                self._extract_data_thread()
+            time.sleep(1)  # 추가 안정화 대기
+            self._extract_data_thread()
 
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("오류", f"크롤링 실패: {e}"))
             self.root.after(0, lambda: self.status_var.set("준비"))
+            logger.error(f"전체 크롤링 실패: {e}")
 
     def update_results(self):
         """결과 탭 업데이트"""

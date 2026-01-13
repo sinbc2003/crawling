@@ -20,28 +20,65 @@ class LLMAnalyzer:
 
     def list_available_models(self) -> List[str]:
         """
-        사용 가능한 모델 목록 반환
+        사용 가능한 모델 목록 반환 (최신 모델만)
 
         Returns:
             모델 ID 리스트
         """
+        # 최신 GPT 모델 목록 (수동으로 관리)
+        recommended_models = [
+            "gpt-4-turbo-preview",
+            "gpt-4-turbo",
+            "gpt-4",
+            "gpt-4-32k",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-1106",
+            "gpt-4-1106-preview",
+            "gpt-4-0125-preview",
+        ]
+
         try:
+            # API에서 사용 가능한 모델 목록 가져오기
             models = self.client.models.list()
-            # GPT 모델만 필터링
-            gpt_models = [
-                model.id for model in models.data
-                if 'gpt' in model.id.lower()
+            available_model_ids = [model.id for model in models.data]
+
+            # 권장 모델 중 사용 가능한 것만 필터링
+            available_recommended = [
+                model for model in recommended_models
+                if model in available_model_ids
             ]
-            return sorted(gpt_models, reverse=True)
+
+            # 추가로 gpt-4로 시작하는 최신 모델 찾기
+            additional_gpt4 = [
+                model_id for model_id in available_model_ids
+                if model_id.startswith('gpt-4') and model_id not in available_recommended
+                and not any(old in model_id for old in ['vision', 'dalle', 'whisper'])
+            ]
+
+            # 추가로 gpt-3.5로 시작하는 최신 모델 찾기
+            additional_gpt35 = [
+                model_id for model_id in available_model_ids
+                if model_id.startswith('gpt-3.5') and model_id not in available_recommended
+            ]
+
+            # 합치기 (gpt-4 우선, 최신순)
+            all_models = available_recommended + sorted(additional_gpt4, reverse=True) + sorted(additional_gpt35, reverse=True)
+
+            # 중복 제거
+            seen = set()
+            result = []
+            for model in all_models:
+                if model not in seen:
+                    seen.add(model)
+                    result.append(model)
+
+            return result if result else recommended_models
+
         except Exception as e:
             logger.error(f"모델 목록 조회 실패: {e}")
             # 기본 모델 목록 반환
-            return [
-                "gpt-4-turbo-preview",
-                "gpt-4",
-                "gpt-3.5-turbo",
-                "gpt-3.5-turbo-16k"
-            ]
+            return recommended_models[:5]
 
     def analyze_page_structure(self, page_summary: str, user_request: str) -> Dict:
         """
