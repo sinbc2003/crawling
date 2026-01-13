@@ -10,6 +10,9 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional, Dict, List
+import subprocess
+import platform
+import os
 
 from src.browser_connector import BrowserConnector
 from src.dom_extractor import DOMExtractor
@@ -47,12 +50,39 @@ class CrawlerApp:
         if config_path.exists():
             with open(config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        return {}
+
+        # 설정 파일이 없으면 기본값 반환 및 생성
+        default_config = {
+            "openai_api_key": "",
+            "default_model": "gpt-4-turbo-preview",
+            "browser": {
+                "headless": False,
+                "timeout": 30000
+            },
+            "crawler": {
+                "max_pages": 10,
+                "delay_between_pages": 1000
+            }
+        }
+
+        # 기본 설정 파일 생성
+        try:
+            with open("config.json", 'w', encoding='utf-8') as f:
+                json.dump(default_config, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+
+        return default_config
 
     def save_config(self):
         """설정 파일 저장"""
-        with open("config.json", 'w', encoding='utf-8') as f:
-            json.dump(self.config, f, ensure_ascii=False, indent=2)
+        try:
+            with open("config.json", 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"설정 저장 실패: {e}")
+            return False
 
     def create_widgets(self):
         """GUI 위젯 생성"""
@@ -148,13 +178,16 @@ google-chrome --remote-debugging-port=9222
         control_frame = ttk.LabelFrame(frame, text="브라우저 제어", padding=10)
         control_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        ttk.Button(control_frame, text="브라우저 연결", command=self.connect_browser).pack(
+        ttk.Button(control_frame, text="🚀 Chrome CDP 실행", command=self.launch_chrome_cdp).pack(
             side=tk.LEFT, padx=5
         )
-        ttk.Button(control_frame, text="URL 이동", command=self.navigate_to_url).pack(
+        ttk.Button(control_frame, text="🔗 브라우저 연결", command=self.connect_browser).pack(
             side=tk.LEFT, padx=5
         )
-        ttk.Button(control_frame, text="연결 해제", command=self.disconnect_browser).pack(
+        ttk.Button(control_frame, text="📍 URL 이동", command=self.navigate_to_url).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(control_frame, text="❌ 연결 해제", command=self.disconnect_browser).pack(
             side=tk.LEFT, padx=5
         )
 
@@ -410,11 +443,12 @@ google-chrome --remote-debugging-port=9222
         if model:
             self.config['default_model'] = model
 
-        self.save_config()
-        self.initialize_llm()
-
-        messagebox.showinfo("완료", "설정이 저장되었습니다")
-        self.log("설정 저장 완료")
+        if self.save_config():
+            self.initialize_llm()
+            messagebox.showinfo("완료", "설정이 저장되었습니다\nconfig.json 파일에 저장되었습니다")
+            self.log("설정 저장 완료")
+        else:
+            messagebox.showerror("오류", "설정 저장에 실패했습니다")
 
     def connect_browser(self):
         """브라우저 연결"""
@@ -825,6 +859,84 @@ google-chrome --remote-debugging-port=9222
             self.js_result_text.delete("1.0", tk.END)
             self.js_result_text.insert("1.0", f"오류:\n{e}")
             messagebox.showerror("오류", f"JavaScript 실행 실패: {e}")
+
+    def launch_chrome_cdp(self):
+        """Chrome을 CDP 모드로 자동 실행"""
+        try:
+            system = platform.system()
+            port = "9222"
+            user_data_dir = os.path.join(os.path.expanduser("~"), "chrome-crawler-profile")
+
+            # OS별 Chrome 경로 및 실행 명령
+            if system == "Windows":
+                chrome_paths = [
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                    os.path.join(os.getenv('LOCALAPPDATA', ''), r"Google\Chrome\Application\chrome.exe")
+                ]
+                chrome_path = next((p for p in chrome_paths if os.path.exists(p)), None)
+
+                if not chrome_path:
+                    messagebox.showerror(
+                        "오류",
+                        "Chrome을 찾을 수 없습니다.\n\n수동으로 실행하세요:\nchrome.exe --remote-debugging-port=9222"
+                    )
+                    return
+
+                cmd = [chrome_path, f"--remote-debugging-port={port}", f"--user-data-dir={user_data_dir}"]
+
+            elif system == "Darwin":  # macOS
+                chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                if not os.path.exists(chrome_path):
+                    messagebox.showerror(
+                        "오류",
+                        "Chrome을 찾을 수 없습니다.\n\n수동으로 실행하세요:\n" +
+                        "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome " +
+                        f"--remote-debugging-port={port}"
+                    )
+                    return
+
+                cmd = [chrome_path, f"--remote-debugging-port={port}", f"--user-data-dir={user_data_dir}"]
+
+            else:  # Linux
+                chrome_paths = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
+                chrome_path = None
+                for path in chrome_paths:
+                    try:
+                        subprocess.run([path, "--version"], capture_output=True, check=True)
+                        chrome_path = path
+                        break
+                    except:
+                        continue
+
+                if not chrome_path:
+                    messagebox.showerror(
+                        "오류",
+                        "Chrome을 찾을 수 없습니다.\n\n수동으로 실행하세요:\n" +
+                        f"google-chrome --remote-debugging-port={port}"
+                    )
+                    return
+
+                cmd = [chrome_path, f"--remote-debugging-port={port}", f"--user-data-dir={user_data_dir}"]
+
+            # Chrome 실행
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            self.log(f"Chrome CDP 모드로 실행됨 (포트 {port})")
+            messagebox.showinfo(
+                "성공",
+                f"Chrome이 CDP 모드로 실행되었습니다!\n\n" +
+                f"포트: {port}\n\n" +
+                "잠시 후 '🔗 브라우저 연결' 버튼을 클릭하세요."
+            )
+
+            # CDP URL 자동 입력
+            self.cdp_url_entry.delete(0, tk.END)
+            self.cdp_url_entry.insert(0, f"http://localhost:{port}")
+
+        except Exception as e:
+            messagebox.showerror("오류", f"Chrome 실행 실패:\n{e}\n\n수동으로 실행해주세요.")
+            logger.error(f"Chrome CDP 실행 실패: {e}")
 
     def log(self, message: str):
         """로그 추가"""
