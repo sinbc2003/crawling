@@ -17,6 +17,9 @@ from src.browser_connector import BrowserConnector
 from src.dom_extractor import DOMExtractor
 from src.llm_analyzer import LLMAnalyzer
 from src.data_extractor import DataExtractor
+from src.detail_extractor import DetailExtractor
+from src.strategy_manager import StrategyManager
+from src.vision_detector import VisionDetector
 from src.exporter import DataExporter
 
 logger = logging.getLogger(__name__)
@@ -34,9 +37,15 @@ class WizardCrawlerApp:
         self.config = self.load_config()
         self.browser_connector: Optional[BrowserConnector] = None
         self.llm_analyzer: Optional[LLMAnalyzer] = None
+        self.vision_detector: Optional[VisionDetector] = None
+        self.strategy_manager = StrategyManager()
         self.current_strategy: Optional[Dict] = None
         self.extracted_data: List[Dict] = []
         self.current_step = 0
+
+        # 새 기능 플래그
+        self.use_detail_extraction = tk.BooleanVar(value=False)
+        self.use_vision_analysis = tk.BooleanVar(value=False)
 
         # GUI 생성
         self.create_wizard()
@@ -440,6 +449,44 @@ class WizardCrawlerApp:
         ttk.Radiobutton(row2, text="보통 ⏱️", variable=self.speed_preset, value="normal").pack(side=tk.LEFT, padx=10)
         ttk.Radiobutton(row2, text="안전 🐢", variable=self.speed_preset, value="safe").pack(side=tk.LEFT, padx=10)
 
+        # 세 번째 줄 - 고급 기능
+        row3 = ttk.Frame(option_frame)
+        row3.pack(fill=tk.X, pady=5)
+
+        ttk.Checkbutton(
+            row3,
+            text="🔍 각 게시글 자동 클릭하여 상세 내용 수집 (게시판 추천)",
+            variable=self.use_detail_extraction
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 네 번째 줄 - Vision AI
+        row4 = ttk.Frame(option_frame)
+        row4.pack(fill=tk.X, pady=5)
+
+        ttk.Checkbutton(
+            row4,
+            text="👁️ Vision AI로 화면 분석 (더 정확, 비용 증가)",
+            variable=self.use_vision_analysis
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 전략 관리 버튼
+        strategy_frame = ttk.Frame(option_frame)
+        strategy_frame.pack(fill=tk.X, pady=10)
+
+        ttk.Label(strategy_frame, text="💾 전략 관리:", font=("", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            strategy_frame,
+            text="불러오기",
+            command=self.load_strategy,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            strategy_frame,
+            text="저장",
+            command=self.save_strategy,
+            width=12
+        ).pack(side=tk.LEFT, padx=5)
+
         # 실행 버튼
         button_frame = ttk.Frame(self.content_frame)
         button_frame.pack(pady=20)
@@ -450,6 +497,44 @@ class WizardCrawlerApp:
             command=self.run_full_crawling,
             style="Big.TButton"
         ).pack()
+
+        # 도움말 (접을 수 있는 섹션)
+        help_frame = ttk.LabelFrame(self.content_frame, text="💡 기능 설명 (클릭하여 확장)", padding=10)
+        help_frame.pack(fill=tk.X, pady=5)
+
+        help_text_widget = tk.Text(help_frame, height=0, wrap=tk.WORD, font=("", 9), bg="#f0f0f0")
+        help_text_widget.pack(fill=tk.X)
+
+        help_text = """
+🔍 각 게시글 자동 클릭하여 상세 내용 수집:
+   - 게시판 목록에서 각 게시글을 자동으로 클릭하여 상세 내용을 추출합니다
+   - 모달 팝업과 일반 페이지 모두 지원합니다
+   - 예: 커뮤니티 게시판, GitHub Issues, 상품 상세 페이지 등
+
+👁️ Vision AI로 화면 분석:
+   - 스크린샷을 GPT-4 Vision이 직접 분석하여 요소를 찾습니다
+   - HTML 구조가 복잡하거나 동적인 페이지에 유용합니다
+   - 비용이 조금 더 들지만 정확도가 높습니다
+
+💾 전략 저장/불러오기:
+   - 한 번 생성한 크롤링 전략을 저장해서 다음에 재사용할 수 있습니다
+   - 같은 사이트를 반복적으로 크롤링할 때 시간과 비용을 절약할 수 있습니다
+   - 전략 파일은 'strategies' 폴더에 JSON 형식으로 저장됩니다
+        """
+
+        help_text_widget.insert("1.0", help_text)
+        help_text_widget.config(state=tk.DISABLED)
+
+        def toggle_help():
+            current_height = help_text_widget.cget("height")
+            if current_height == 0:
+                help_text_widget.config(height=10)
+                help_frame.config(text="💡 기능 설명 (클릭하여 축소)")
+            else:
+                help_text_widget.config(height=0)
+                help_frame.config(text="💡 기능 설명 (클릭하여 확장)")
+
+        help_frame.bind("<Button-1>", lambda e: toggle_help())
 
         # 로그
         log_frame = ttk.LabelFrame(self.content_frame, text="📋 진행 상황", padding=10)
@@ -716,13 +801,30 @@ class WizardCrawlerApp:
         """전체 크롤링 (백그라운드)"""
         try:
             # 1. 전략 생성
-            self.log("🔍 LLM 분석 중...")
-            self.root.after(0, lambda: self.status_var.set("LLM 분석 중..."))
+            self.log("🔍 크롤링 전략 분석 중...")
+            self.root.after(0, lambda: self.status_var.set("전략 분석 중..."))
 
-            strategy = self.llm_analyzer.generate_selectors_from_html(page_html, request)
+            # Vision AI 사용 여부 확인
+            use_vision = self.use_vision_analysis.get()
+
+            if use_vision:
+                self.log("👁️ Vision AI로 화면 분석 중... (비용 높음, 정확도 높음)")
+                if not self.vision_detector:
+                    api_key = self.config.get('openai_api_key')
+                    self.vision_detector = VisionDetector(api_key)
+
+                strategy = self.vision_detector.generate_extraction_strategy_from_screenshot(
+                    self.browser_connector.page,
+                    request
+                )
+            else:
+                self.log("📝 HTML 기반 분석 중... (빠르고 경제적)")
+                strategy = self.llm_analyzer.generate_selectors_from_html(page_html, request)
+
             self.current_strategy = strategy
-
             self.log("✅ 크롤링 전략 생성 완료")
+            self.log(f"   컨테이너: {strategy.get('container_selector', 'N/A')}")
+            self.log(f"   필드 개수: {len(strategy.get('fields', []))}개")
 
             # 2. 데이터 추출
             import time
@@ -740,13 +842,42 @@ class WizardCrawlerApp:
             else:  # normal
                 item_delay, page_delay = 0.2, 1.5
 
-            extractor = DataExtractor(self.browser_connector.page, item_delay=item_delay)
+            # 상세 페이지 자동 추출 여부
+            use_detail = self.use_detail_extraction.get()
 
-            if self.pagination_var.get():
-                max_pages = int(self.max_pages_spin.get())
-                data = extractor.extract_with_pagination(strategy, max_pages=max_pages, delay=page_delay)
+            if use_detail:
+                self.log("🔍 상세 페이지 자동 추출 모드 활성화")
+                detail_extractor = DetailExtractor(
+                    self.browser_connector.page,
+                    item_delay=item_delay,
+                    page_delay=page_delay
+                )
+
+                if self.pagination_var.get():
+                    max_pages = int(self.max_pages_spin.get())
+                    self.log(f"📄 페이지네이션 활성화 (최대 {max_pages}페이지)")
+                    data = detail_extractor.extract_with_pagination_and_details(
+                        list_strategy=strategy,
+                        max_pages=max_pages,
+                        progress_callback=self._detail_progress_callback
+                    )
+                else:
+                    self.log("📝 단일 페이지 모드")
+                    data = detail_extractor.extract_list_with_details(
+                        list_strategy=strategy,
+                        progress_callback=self._detail_progress_callback
+                    )
             else:
-                data = extractor.extract_data(strategy)
+                # 기본 추출 (상세 페이지 없음)
+                extractor = DataExtractor(self.browser_connector.page, item_delay=item_delay)
+
+                if self.pagination_var.get():
+                    max_pages = int(self.max_pages_spin.get())
+                    self.log(f"📄 페이지네이션 활성화 (최대 {max_pages}페이지)")
+                    data = extractor.extract_with_pagination(strategy, max_pages=max_pages, delay=page_delay)
+                else:
+                    self.log("📝 단일 페이지 모드")
+                    data = extractor.extract_data(strategy)
 
             self.extracted_data = data
 
@@ -763,6 +894,11 @@ class WizardCrawlerApp:
             self.root.after(0, lambda: messagebox.showerror("오류", f"크롤링 실패: {e}"))
             self.root.after(0, lambda: self.status_var.set("준비"))
             logger.error(f"크롤링 실패: {e}")
+
+    def _detail_progress_callback(self, current: int, total: int, page: int = 1):
+        """상세 추출 진행률 콜백"""
+        self.log(f"   [{current}/{total}] 상세 페이지 추출 중...")
+        self.root.after(0, lambda: self.status_var.set(f"상세 추출 중... ({current}/{total})"))
 
     def update_results(self):
         """결과 업데이트"""
@@ -808,6 +944,154 @@ class WizardCrawlerApp:
 
         except Exception as e:
             messagebox.showerror("오류", f"저장 실패: {e}")
+
+    def save_strategy(self):
+        """현재 크롤링 전략 저장"""
+        if not self.current_strategy:
+            messagebox.showerror("오류", "저장할 전략이 없습니다.\n먼저 크롤링을 실행하세요.")
+            return
+
+        if not self.browser_connector:
+            messagebox.showerror("오류", "브라우저 정보가 없습니다")
+            return
+
+        # 사용자에게 전략 이름 입력 받기
+        from tkinter import simpledialog
+        strategy_name = simpledialog.askstring(
+            "전략 저장",
+            "이 전략의 이름을 입력하세요:\n(예: 네이버 카페 게시판, GitHub Issues)"
+        )
+
+        if not strategy_name:
+            return
+
+        # 설명 입력 받기
+        description = simpledialog.askstring(
+            "전략 설명",
+            "간단한 설명을 입력하세요 (선택사항):",
+        )
+
+        try:
+            url = self.browser_connector.page.url
+            filepath = self.strategy_manager.save_strategy(
+                url=url,
+                strategy=self.current_strategy,
+                name=strategy_name,
+                description=description or f"{strategy_name} 크롤링 전략"
+            )
+
+            messagebox.showinfo(
+                "저장 완료",
+                f"✅ 전략이 저장되었습니다!\n\n파일: {filepath}\n\n이 전략은 다음에 같은 사이트를 크롤링할 때 재사용할 수 있습니다."
+            )
+            self.log(f"✅ 전략 저장 완료: {strategy_name}")
+
+        except Exception as e:
+            messagebox.showerror("오류", f"전략 저장 실패: {e}")
+
+    def load_strategy(self):
+        """저장된 전략 불러오기"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        # 현재 URL로 전략 찾기
+        current_url = self.browser_connector.page.url
+
+        # 저장된 전략 목록 가져오기
+        strategies = self.strategy_manager.list_strategies()
+
+        if not strategies:
+            messagebox.showinfo(
+                "알림",
+                "저장된 전략이 없습니다.\n\n크롤링을 실행한 후 '전략 저장' 버튼을 눌러 전략을 저장하세요."
+            )
+            return
+
+        # 전략 선택 다이얼로그 생성
+        dialog = tk.Toplevel(self.root)
+        dialog.title("전략 선택")
+        dialog.geometry("700x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text="💾 저장된 크롤링 전략 목록",
+            font=("", 14, "bold")
+        ).pack(pady=10)
+
+        ttk.Label(
+            dialog,
+            text=f"현재 페이지: {current_url[:80]}...",
+            foreground="gray"
+        ).pack(pady=5)
+
+        # 리스트박스
+        list_frame = ttk.Frame(dialog)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        strategy_listbox = tk.Listbox(
+            list_frame,
+            yscrollcommand=scrollbar.set,
+            font=("", 10),
+            height=15
+        )
+        strategy_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=strategy_listbox.yview)
+
+        # 전략 목록 채우기
+        for strategy in strategies:
+            display_text = f"{strategy['name']} | {strategy['domain']} | {strategy['created_at'][:10]}"
+            strategy_listbox.insert(tk.END, display_text)
+
+        # 상세 정보 레이블
+        detail_label = ttk.Label(dialog, text="", font=("", 9), foreground="blue", wraplength=650)
+        detail_label.pack(pady=5)
+
+        def on_select(event):
+            selection = strategy_listbox.curselection()
+            if selection:
+                idx = selection[0]
+                selected = strategies[idx]
+                detail_text = f"설명: {selected['description']}\nURL: {selected['url']}"
+                detail_label.config(text=detail_text)
+
+        strategy_listbox.bind('<<ListboxSelect>>', on_select)
+
+        # 버튼
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+
+        def load_selected():
+            selection = strategy_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("알림", "전략을 선택하세요")
+                return
+
+            idx = selection[0]
+            selected = strategies[idx]
+
+            try:
+                strategy_data = self.strategy_manager.load_strategy(selected['filepath'])
+                self.current_strategy = strategy_data['strategy']
+
+                dialog.destroy()
+
+                messagebox.showinfo(
+                    "불러오기 완료",
+                    f"✅ 전략 불러오기 완료!\n\n이름: {strategy_data['name']}\n\n이제 '크롤링 시작' 버튼을 눌러 데이터를 수집하세요.\n(자동으로 저장된 selector를 사용합니다)"
+                )
+                self.log(f"✅ 전략 불러오기: {strategy_data['name']}")
+
+            except Exception as e:
+                messagebox.showerror("오류", f"전략 불러오기 실패: {e}")
+
+        ttk.Button(button_frame, text="불러오기", command=load_selected, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="취소", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
 
     def log(self, message: str):
         """로그 추가"""

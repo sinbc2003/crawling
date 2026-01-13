@@ -9,10 +9,16 @@ import logging
 from pathlib import Path
 
 # GUI 모드
-def run_gui_mode():
+def run_gui_mode(advanced=False):
     """GUI 모드 실행"""
-    from gui.app import run_gui
-    run_gui()
+    if advanced:
+        # 고급 모드: 5-탭 인터페이스
+        from gui.app import run_gui
+        run_gui()
+    else:
+        # 기본 모드: 단계별 위저드 인터페이스
+        from gui.wizard_app import run_wizard_gui
+        run_wizard_gui()
 
 
 # CLI 모드
@@ -143,6 +149,12 @@ def main():
         help='CLI 모드 실행 (기본: GUI 모드)'
     )
 
+    parser.add_argument(
+        '--advanced',
+        action='store_true',
+        help='고급 GUI 모드 (5-탭 인터페이스, 기본: 단계별 위저드)'
+    )
+
     # CLI 모드 옵션
     parser.add_argument(
         '--url',
@@ -226,7 +238,7 @@ def main():
     if args.cli:
         run_cli_mode(args)
     else:
-        run_gui_mode()
+        run_gui_mode(advanced=args.advanced)
 
 
 if __name__ == "__main__":
