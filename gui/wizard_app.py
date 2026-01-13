@@ -584,6 +584,22 @@ class WizardCrawlerApp:
             variable=self.use_vision_analysis
         ).pack(side=tk.LEFT, padx=5)
 
+        # 다섯 번째 줄 - SPA 옵션 (목록 버튼)
+        row5 = ttk.Frame(option_frame)
+        row5.pack(fill=tk.X, pady=5)
+
+        ttk.Label(row5, text="🔙 목록 버튼 (SPA용):", font=("", 9)).pack(side=tk.LEFT, padx=5)
+        self.back_button_entry = ttk.Entry(row5, width=40, font=("", 9))
+        self.back_button_entry.pack(side=tk.LEFT, padx=5)
+        self.back_button_entry.insert(0, "자동 감지 (비워두세요)")
+
+        ttk.Label(
+            row5,
+            text="(URL 고정 페이지용, 예: button.back)",
+            font=("", 8),
+            foreground="gray"
+        ).pack(side=tk.LEFT, padx=5)
+
         # 안내 메시지
         info_frame = ttk.Frame(option_frame)
         info_frame.pack(fill=tk.X, pady=10)
@@ -617,7 +633,7 @@ class WizardCrawlerApp:
         help_text = """
 🔍 각 게시글 자동 클릭하여 상세 내용 수집:
    - 게시판 목록에서 각 게시글을 자동으로 클릭하여 상세 내용을 추출합니다
-   - 모달 팝업과 일반 페이지 모두 지원합니다
+   - 모달 팝업, SPA, 일반 페이지 모두 자동 지원합니다
    - 예: 커뮤니티 게시판, GitHub Issues, 상품 상세 페이지 등
 
 👁️ Vision AI로 화면 분석:
@@ -625,10 +641,16 @@ class WizardCrawlerApp:
    - HTML 구조가 복잡하거나 동적인 페이지에 유용합니다
    - 비용이 조금 더 들지만 정확도가 높습니다
 
-💾 전략 저장/불러오기:
-   - 한 번 생성한 크롤링 전략을 저장해서 다음에 재사용할 수 있습니다
-   - 같은 사이트를 반복적으로 크롤링할 때 시간과 비용을 절약할 수 있습니다
-   - 전략 파일은 'strategies' 폴더에 JSON 형식으로 저장됩니다
+🔙 목록 버튼 (SPA용):
+   - URL이 변하지 않는 Single Page App에서 목록으로 돌아가는 버튼을 지정합니다
+   - 비워두면 "목록", "뒤로", "Back" 등의 버튼을 자동으로 찾습니다
+   - 자동 감지가 실패하면 CSS selector를 직접 입력하세요
+   - 예: button.back, a:has-text("목록"), [data-action="back"]
+
+💾 프로젝트 저장:
+   - 한 번 생성한 크롤링 전략을 프로젝트로 저장해서 재사용할 수 있습니다
+   - 좌측 사이드바에서 프로젝트를 선택하면 자동으로 로드됩니다
+   - 메모 기능으로 크롤링 목적과 주의사항을 기록하세요
         """
 
         help_text_widget.insert("1.0", help_text)
@@ -956,10 +978,22 @@ class WizardCrawlerApp:
 
             if use_detail:
                 self.log("🔍 상세 페이지 자동 추출 모드 활성화")
+
+                # 목록 버튼 selector 가져오기
+                back_button_text = self.back_button_entry.get().strip()
+                back_button_selector = None if back_button_text == "자동 감지 (비워두세요)" or not back_button_text else back_button_text
+
+                if back_button_selector:
+                    self.log(f"   목록 버튼 지정: {back_button_selector}")
+                else:
+                    self.log("   목록 버튼: 자동 감지 모드")
+
                 detail_extractor = DetailExtractor(
                     self.browser_connector.page,
                     item_delay=item_delay,
-                    page_delay=page_delay
+                    page_delay=page_delay,
+                    back_button_selector=back_button_selector,
+                    use_smart_waiting=True
                 )
 
                 if self.pagination_var.get():

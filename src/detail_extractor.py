@@ -13,18 +13,29 @@ logger = logging.getLogger(__name__)
 
 
 class DetailExtractor:
-    """상세 페이지 자동 추출 클래스"""
+    """상세 페이지 자동 추출 클래스 (SPA/모달 지원 강화)"""
 
-    def __init__(self, page: Page, item_delay: float = 0.5, page_delay: float = 1.0):
+    def __init__(
+        self,
+        page: Page,
+        item_delay: float = 0.5,
+        page_delay: float = 1.0,
+        back_button_selector: Optional[str] = None,
+        use_smart_waiting: bool = True
+    ):
         """
         Args:
             page: Playwright Page 객체
             item_delay: 각 아이템 클릭 사이의 대기 시간 (초)
             page_delay: 페이지 전환 후 대기 시간 (초)
+            back_button_selector: 목록으로 돌아가는 버튼 selector (SPA 전용)
+            use_smart_waiting: 동적 대기 사용 여부 (콘텐츠 로딩 기다림)
         """
         self.page = page
         self.item_delay = item_delay
         self.page_delay = page_delay
+        self.back_button_selector = back_button_selector
+        self.use_smart_waiting = use_smart_waiting
 
     def extract_list_with_details(
         self,
@@ -222,7 +233,7 @@ class DetailExtractor:
         original_url: str
     ) -> Dict:
         """
-        링크를 클릭하여 상세 내용 추출 (모달 지원)
+        링크를 클릭하여 상세 내용 추출 (모달/SPA 지원 강화)
         """
         detail_data = {}
 
@@ -240,24 +251,37 @@ class DetailExtractor:
             # 클릭
             link_element.click()
 
-            # 페이지 로딩 대기
-            time.sleep(self.page_delay)
+            # 스마트 대기: 콘텐츠 로딩 기다리기
+            if self.use_smart_waiting:
+                self._wait_for_content_load()
+            else:
+                time.sleep(self.page_delay)
 
             # URL이 변경되었는지 확인
             new_url = self.page.url
-            is_modal = (current_url == new_url)
+            is_spa_or_modal = (current_url == new_url)
 
-            if is_modal:
-                logger.info("모달 페이지 감지됨")
+            if is_spa_or_modal:
+                logger.info("SPA/모달 페이지 감지됨 (URL 고정)")
 
-                # 모달 컨텐츠 추출
-                detail_data = self._extract_modal_content(detail_strategy)
+                # 모달인지 SPA인지 추가 확인
+                is_modal = self._is_modal_present()
 
-                # 모달 닫기
-                self._close_modal()
+                if is_modal:
+                    logger.info("→ 모달 팝업으로 확인")
+                    # 모달 컨텐츠 추출
+                    detail_data = self._extract_modal_content(detail_strategy)
+                    # 모달 닫기
+                    self._close_modal()
+                else:
+                    logger.info("→ SPA 페이지로 확인")
+                    # SPA 페이지 추출
+                    detail_data = self._extract_page_content(detail_strategy)
+                    # 목록으로 돌아가기 (SPA 전용)
+                    self._go_back_to_list()
 
             else:
-                logger.info("일반 페이지로 이동됨")
+                logger.info("일반 페이지로 이동됨 (URL 변경)")
 
                 # 일반 페이지 추출
                 detail_data = self._extract_page_content(detail_strategy)
@@ -498,6 +522,191 @@ class DetailExtractor:
                 logger.info("배경 클릭으로 모달 닫기 시도")
         except:
             pass
+
+    def _wait_for_content_load(self):
+        """
+        콘텐츠 로딩 대기 (스마트 대기)
+        네트워크 활동과 DOM 변경을 감지
+        """
+        try:
+            # 1. 네트워크가 idle 상태가 될 때까지 대기
+            self.page.wait_for_load_state('networkidle', timeout=5000)
+            logger.debug("네트워크 idle 확인")
+        except PlaywrightTimeout:
+            logger.debug("네트워크 idle 타임아웃 (계속 진행)")
+            pass
+
+        # 2. 추가 안정화 시간
+        time.sleep(0.5)
+
+        # 3. 일반적인 로딩 인디케이터가 사라질 때까지 대기
+        loading_selectors = [
+            '.loading',
+            '.spinner',
+            '[class*="loading"]',
+            '[class*="spinner"]',
+            '.loader'
+        ]
+
+        for selector in loading_selectors:
+            try:
+                # 로딩 인디케이터가 있다면 사라질 때까지 대기
+                if self.page.is_visible(selector):
+                    self.page.wait_for_selector(selector, state='hidden', timeout=5000)
+                    logger.debug(f"로딩 인디케이터 사라짐: {selector}")
+            except:
+                continue
+
+    def _is_modal_present(self) -> bool:
+        """
+        모달이 현재 화면에 있는지 확인
+
+        Returns:
+            True if modal is present, False otherwise
+        """
+        modal_selectors = [
+            '.modal.show',
+            '.modal.open',
+            '.modal[style*="display: block"]',
+            '.modal-dialog',
+            '[role="dialog"][aria-modal="true"]',
+            '.popup.show',
+            '.popup.open',
+            '.overlay.show'
+        ]
+
+        for selector in modal_selectors:
+            try:
+                element = self.page.query_selector(selector)
+                if element and element.is_visible():
+                    logger.debug(f"모달 감지됨: {selector}")
+                    return True
+            except:
+                continue
+
+        return False
+
+    def _go_back_to_list(self):
+        """
+        목록으로 돌아가기 (SPA 전용)
+        1. 사용자 지정 selector 시도
+        2. 일반적인 패턴 자동 감지
+        3. ESC 키 시도
+        """
+        # 1. 사용자가 지정한 selector가 있으면 우선 사용
+        if self.back_button_selector:
+            try:
+                back_button = self.page.query_selector(self.back_button_selector)
+                if back_button and back_button.is_visible():
+                    back_button.click()
+                    time.sleep(0.5)
+                    logger.info(f"목록 버튼 클릭 성공: {self.back_button_selector}")
+                    return
+            except Exception as e:
+                logger.warning(f"지정된 목록 버튼 클릭 실패: {e}")
+
+        # 2. 일반적인 목록 버튼 패턴 자동 감지
+        back_button = self._detect_back_button()
+        if back_button:
+            try:
+                back_button.click()
+                time.sleep(0.5)
+                logger.info("목록 버튼 자동 감지 및 클릭 성공")
+                return
+            except Exception as e:
+                logger.warning(f"자동 감지한 목록 버튼 클릭 실패: {e}")
+
+        # 3. ESC 키 시도 (일부 SPA에서 작동)
+        try:
+            self.page.keyboard.press('Escape')
+            time.sleep(0.5)
+            logger.info("ESC 키로 목록 복귀 시도")
+            return
+        except:
+            pass
+
+        # 4. 브라우저 뒤로가기 시도 (최후의 수단)
+        try:
+            self.page.go_back()
+            time.sleep(self.page_delay)
+            logger.info("브라우저 뒤로가기로 목록 복귀")
+        except Exception as e:
+            logger.warning(f"목록 복귀 실패: {e}")
+
+    def _detect_back_button(self):
+        """
+        목록으로 돌아가는 버튼 자동 감지
+
+        Returns:
+            ElementHandle or None
+        """
+        # 텍스트 기반 패턴 (한국어 + 영어)
+        text_patterns = [
+            'button:has-text("목록")',
+            'button:has-text("리스트")',
+            'button:has-text("List")',
+            'button:has-text("Back")',
+            'button:has-text("뒤로")',
+            'button:has-text("돌아가기")',
+            'a:has-text("목록")',
+            'a:has-text("리스트")',
+            'a:has-text("List")',
+            'a:has-text("Back")',
+            'a:has-text("뒤로")',
+        ]
+
+        for pattern in text_patterns:
+            try:
+                element = self.page.query_selector(pattern)
+                if element and element.is_visible():
+                    logger.debug(f"목록 버튼 발견 (텍스트): {pattern}")
+                    return element
+            except:
+                continue
+
+        # CSS 클래스 기반 패턴
+        class_patterns = [
+            'button.back',
+            'button.list',
+            'button.btn-back',
+            'button.btn-list',
+            'a.back',
+            'a.list',
+            '[data-action="back"]',
+            '[data-action="list"]',
+            '[aria-label*="back" i]',
+            '[aria-label*="list" i]',
+        ]
+
+        for pattern in class_patterns:
+            try:
+                element = self.page.query_selector(pattern)
+                if element and element.is_visible():
+                    logger.debug(f"목록 버튼 발견 (클래스): {pattern}")
+                    return element
+            except:
+                continue
+
+        # 아이콘 기반 (화살표 아이콘)
+        icon_patterns = [
+            'button:has(svg[class*="arrow"])',
+            'button:has(i[class*="arrow"])',
+            'button:has(.icon-arrow)',
+            'a:has(svg[class*="arrow"])',
+            'a:has(i[class*="arrow"])',
+        ]
+
+        for pattern in icon_patterns:
+            try:
+                element = self.page.query_selector(pattern)
+                if element and element.is_visible():
+                    logger.debug(f"목록 버튼 발견 (아이콘): {pattern}")
+                    return element
+            except:
+                continue
+
+        logger.debug("목록 버튼을 자동으로 찾을 수 없음")
+        return None
 
     def extract_with_pagination_and_details(
         self,
