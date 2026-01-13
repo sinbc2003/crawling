@@ -17,44 +17,62 @@ LLM 기반 범용 웹 크롤러 - 자연어로 요청하면 어떤 웹페이지�
 - 💻 **CLI 지원**: 스크립트 자동화 가능
 - 📦 **실행파일 빌드**: PyInstaller로 exe 생성
 
-## 설치 방법
+## ⚠️ 중요: Python 버전 요구사항
+
+**Python 3.13은 아직 완전히 지원되지 않습니다!**
+
+✅ **Python 3.11** 또는 **Python 3.12**를 사용하세요.
+
+현재 버전 확인:
+```bash
+python --version
+```
+
+## 🚀 빠른 시작
+
+### Windows (초보자용 - 가장 쉬움!)
+
+1. **자동 설치**
+```bash
+install.bat
+```
+
+2. **설정 파일 편집**
+`config.json` 파일을 메모장으로 열어서 OpenAI API 키 입력
+
+3. **실행**
+```bash
+python main.py
+```
+
+**상세 가이드**: [QUICK_START.md](QUICK_START.md) 📖
+
+### 수동 설치
 
 ```bash
-# 의존성 설치
+# 1. 의존성 설치
 pip install -r requirements.txt
 
-# Playwright 브라우저 설치
-playwright install chromium
-```
+# 2. Playwright 브라우저 설치
+python -m playwright install chromium
 
-## 사용 방법
+# 3. 설정 파일 생성
+copy config.example.json config.json
+# config.json에 OpenAI API 키 입력
 
-### 1. 설정
-
-`config.json` 파일 생성:
-```json
-{
-  "openai_api_key": "your-api-key-here",
-  "default_model": "gpt-4-turbo-preview"
-}
-```
-
-### 2. 실행
-
-```bash
-# GUI 모드
+# 4. 실행
 python main.py
-
-# CLI 모드
-python main.py --cli
 ```
 
-### 3. 실행파일 빌드
+### 문제 해결
 
-```bash
-pyinstaller build.spec
-# dist/crawler.exe 생성됨
-```
+**"pandas 설치 실패" 또는 "numpy 컴파일 오류"**
+→ Python 3.11이나 3.12를 사용하세요!
+
+**"playwright 명령을 찾을 수 없습니다"**
+→ `python -m playwright install chromium` 사용하세요!
+
+더 많은 문제 해결: [QUICK_START.md#FAQ](QUICK_START.md#💡-자주-묻는-질문-faq)
 
 ## 💡 작동 원리
 
