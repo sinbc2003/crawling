@@ -14,8 +14,14 @@ logger = logging.getLogger(__name__)
 class DataExtractor:
     """데이터 추출 및 페이지네이션 처리 클래스"""
 
-    def __init__(self, page: Page):
+    def __init__(self, page: Page, item_delay: float = 0.0):
+        """
+        Args:
+            page: Playwright Page 객체
+            item_delay: 각 아이템 추출 사이의 대기 시간 (초)
+        """
         self.page = page
+        self.item_delay = item_delay
 
     def extract_data(self, strategy: Dict, max_items: Optional[int] = None) -> List[Dict]:
         """
@@ -83,6 +89,10 @@ class DataExtractor:
 
             if item_data:
                 all_data.append(item_data)
+
+                # 속도 조절: 각 아이템 추출 후 대기
+                if self.item_delay > 0 and idx < len(containers) - 1:
+                    time.sleep(self.item_delay)
 
         logger.info(f"총 {len(all_data)}개 아이템 추출 완료")
         return all_data

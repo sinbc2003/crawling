@@ -66,7 +66,13 @@ class CrawlerApp:
         # 탭 2: 크롤링
         self.create_crawling_tab(notebook)
 
-        # 탭 3: 결과
+        # 탭 3: DOM 구조 뷰어
+        self.create_dom_viewer_tab(notebook)
+
+        # 탭 4: 브라우저 제어
+        self.create_browser_control_tab(notebook)
+
+        # 탭 5: 결과
         self.create_results_tab(notebook)
 
         # 상태바
@@ -184,6 +190,27 @@ google-chrome --remote-debugging-port=9222
             options_frame, text="페이지네이션 처리", variable=self.pagination_var
         ).pack(side=tk.LEFT, padx=20)
 
+        # 속도 조절 옵션
+        speed_frame = ttk.Frame(request_frame)
+        speed_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(speed_frame, text="크롤링 속도 조절:").pack(side=tk.LEFT, padx=5)
+
+        # 아이템 간 딜레이
+        ttk.Label(speed_frame, text="아이템 딜레이(초):").pack(side=tk.LEFT, padx=5)
+        self.item_delay_spin = ttk.Spinbox(speed_frame, from_=0, to=10, increment=0.1, width=10)
+        self.item_delay_spin.set(0.0)
+        self.item_delay_spin.pack(side=tk.LEFT, padx=5)
+
+        # 페이지 간 딜레이
+        ttk.Label(speed_frame, text="페이지 딜레이(초):").pack(side=tk.LEFT, padx=10)
+        self.page_delay_spin = ttk.Spinbox(speed_frame, from_=0, to=30, increment=0.5, width=10)
+        self.page_delay_spin.set(1.0)
+        self.page_delay_spin.pack(side=tk.LEFT, padx=5)
+
+        # 설명
+        ttk.Label(speed_frame, text="💡 서버 부하 방지", foreground="gray").pack(side=tk.LEFT, padx=10)
+
         # 실행 버튼
         button_frame = ttk.Frame(request_frame)
         button_frame.pack(fill=tk.X, pady=10)
@@ -242,6 +269,94 @@ google-chrome --remote-debugging-port=9222
         ttk.Button(export_frame, text="모든 형식으로 저장", command=lambda: self.export_data('all')).pack(
             side=tk.LEFT, padx=5
         )
+
+    def create_dom_viewer_tab(self, notebook: ttk.Notebook):
+        """DOM 구조 뷰어 탭 생성 (F12처럼 페이지 구조 보기)"""
+        frame = ttk.Frame(notebook)
+        notebook.add(frame, text="🔍 DOM 구조")
+
+        # 설명
+        info_frame = ttk.Frame(frame)
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Label(
+            info_frame,
+            text="현재 페이지의 DOM 구조를 확인하세요 (F12 개발자 도구와 유사)",
+            font=("", 10, "bold")
+        ).pack(anchor=tk.W)
+
+        # 버튼
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Button(button_frame, text="🔄 페이지 구조 분석", command=self.analyze_page_structure).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(button_frame, text="📋 HTML 복사", command=self.copy_html).pack(
+            side=tk.LEFT, padx=5
+        )
+        ttk.Button(button_frame, text="💾 HTML 저장", command=self.save_html).pack(
+            side=tk.LEFT, padx=5
+        )
+
+        # DOM 구조 표시
+        dom_frame = ttk.LabelFrame(frame, text="페이지 구조 요약", padding=10)
+        dom_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.dom_text = scrolledtext.ScrolledText(dom_frame, wrap=tk.WORD)
+        self.dom_text.pack(fill=tk.BOTH, expand=True)
+
+    def create_browser_control_tab(self, notebook: ttk.Notebook):
+        """브라우저 원격 제어 탭 생성"""
+        frame = ttk.Frame(notebook)
+        notebook.add(frame, text="🎮 브라우저 제어")
+
+        # 설명
+        info_frame = ttk.Frame(frame)
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Label(
+            info_frame,
+            text="브라우저를 원격으로 제어하고 JavaScript를 실행하세요",
+            font=("", 10, "bold")
+        ).pack(anchor=tk.W)
+
+        # 기본 제어
+        control_frame = ttk.LabelFrame(frame, text="기본 제어", padding=10)
+        control_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        # 네비게이션
+        nav_frame = ttk.Frame(control_frame)
+        nav_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Button(nav_frame, text="◀ 뒤로", command=self.browser_back).pack(side=tk.LEFT, padx=5)
+        ttk.Button(nav_frame, text="▶ 앞으로", command=self.browser_forward).pack(side=tk.LEFT, padx=5)
+        ttk.Button(nav_frame, text="🔄 새로고침", command=self.browser_reload).pack(side=tk.LEFT, padx=5)
+        ttk.Button(nav_frame, text="📸 스크린샷", command=self.take_screenshot).pack(side=tk.LEFT, padx=5)
+        ttk.Button(nav_frame, text="📍 현재 URL", command=self.show_current_url).pack(side=tk.LEFT, padx=5)
+
+        # JavaScript 실행
+        js_frame = ttk.LabelFrame(frame, text="JavaScript 실행", padding=10)
+        js_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        ttk.Label(js_frame, text="JavaScript 코드를 입력하세요:").pack(anchor=tk.W, pady=5)
+
+        self.js_text = scrolledtext.ScrolledText(js_frame, height=8, wrap=tk.WORD)
+        self.js_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.js_text.insert("1.0", "// 예시: document.title")
+
+        js_button_frame = ttk.Frame(js_frame)
+        js_button_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Button(js_button_frame, text="▶️ 실행", command=self.execute_javascript).pack(side=tk.LEFT, padx=5)
+        ttk.Button(js_button_frame, text="🗑️ 지우기", command=lambda: self.js_text.delete("1.0", tk.END)).pack(
+            side=tk.LEFT, padx=5
+        )
+
+        # 결과
+        result_frame = ttk.LabelFrame(frame, text="실행 결과", padding=10)
+        result_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.js_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap=tk.WORD)
+        self.js_result_text.pack(fill=tk.BOTH, expand=True)
 
     # === 이벤트 핸들러 ===
 
@@ -420,12 +535,20 @@ google-chrome --remote-debugging-port=9222
         try:
             self.root.after(0, lambda: self.status_var.set("데이터 추출 중..."))
 
-            extractor = DataExtractor(self.browser_connector.page)
+            # 속도 조절 파라미터 가져오기
+            item_delay = float(self.item_delay_spin.get())
+            page_delay = float(self.page_delay_spin.get())
+
+            extractor = DataExtractor(self.browser_connector.page, item_delay=item_delay)
 
             # 페이지네이션 처리 여부
             if self.pagination_var.get():
                 max_pages = int(self.max_pages_spin.get())
-                data = extractor.extract_with_pagination(self.current_strategy, max_pages=max_pages)
+                data = extractor.extract_with_pagination(
+                    self.current_strategy,
+                    max_pages=max_pages,
+                    delay=page_delay
+                )
             else:
                 data = extractor.extract_data(self.current_strategy)
 
@@ -524,6 +647,184 @@ google-chrome --remote-debugging-port=9222
 
         except Exception as e:
             messagebox.showerror("오류", f"내보내기 실패: {e}")
+
+    # === 새로운 기능 핸들러 ===
+
+    def analyze_page_structure(self):
+        """페이지 구조 분석 (DOM 뷰어)"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        threading.Thread(target=self._analyze_page_structure_thread, daemon=True).start()
+
+    def _analyze_page_structure_thread(self):
+        """페이지 구조 분석 (백그라운드)"""
+        try:
+            self.root.after(0, lambda: self.status_var.set("페이지 구조 분석 중..."))
+
+            extractor = DOMExtractor(self.browser_connector.page)
+            summary = extractor.get_page_structure_summary()
+
+            # 상세 정보 추가
+            html = extractor.get_full_html()
+            summary += f"\n\n전체 HTML 크기: {len(html):,} bytes"
+            summary += f"\n현재 URL: {self.browser_connector.get_current_url()}"
+
+            self.root.after(0, lambda: self.dom_text.delete("1.0", tk.END))
+            self.root.after(0, lambda: self.dom_text.insert("1.0", summary))
+
+            self.log("페이지 구조 분석 완료")
+            self.root.after(0, lambda: self.status_var.set("준비"))
+
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("오류", f"페이지 분석 실패: {e}"))
+            self.root.after(0, lambda: self.status_var.set("준비"))
+
+    def copy_html(self):
+        """HTML을 클립보드에 복사"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        try:
+            extractor = DOMExtractor(self.browser_connector.page)
+            html = extractor.get_full_html()
+
+            self.root.clipboard_clear()
+            self.root.clipboard_append(html)
+            messagebox.showinfo("완료", "HTML이 클립보드에 복사되었습니다")
+            self.log("HTML 클립보드 복사 완료")
+
+        except Exception as e:
+            messagebox.showerror("오류", f"HTML 복사 실패: {e}")
+
+    def save_html(self):
+        """HTML을 파일로 저장"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        try:
+            from datetime import datetime
+            default_name = f"page_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".html",
+                filetypes=[("HTML files", "*.html"), ("All files", "*.*")],
+                initialfile=default_name
+            )
+
+            if filepath:
+                extractor = DOMExtractor(self.browser_connector.page)
+                html = extractor.get_full_html()
+
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(html)
+
+                messagebox.showinfo("완료", f"HTML 저장 완료:\n{filepath}")
+                self.log(f"HTML 저장: {filepath}")
+
+        except Exception as e:
+            messagebox.showerror("오류", f"HTML 저장 실패: {e}")
+
+    def browser_back(self):
+        """브라우저 뒤로 가기"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        try:
+            self.browser_connector.page.go_back()
+            self.log("뒤로 가기")
+        except Exception as e:
+            messagebox.showerror("오류", f"뒤로 가기 실패: {e}")
+
+    def browser_forward(self):
+        """브라우저 앞으로 가기"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        try:
+            self.browser_connector.page.go_forward()
+            self.log("앞으로 가기")
+        except Exception as e:
+            messagebox.showerror("오류", f"앞으로 가기 실패: {e}")
+
+    def browser_reload(self):
+        """브라우저 새로고침"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        try:
+            self.browser_connector.page.reload()
+            self.log("새로고침")
+        except Exception as e:
+            messagebox.showerror("오류", f"새로고침 실패: {e}")
+
+    def take_screenshot(self):
+        """스크린샷 저장"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        try:
+            from datetime import datetime
+            default_name = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
+                initialfile=default_name
+            )
+
+            if filepath:
+                self.browser_connector.take_screenshot(filepath)
+                messagebox.showinfo("완료", f"스크린샷 저장 완료:\n{filepath}")
+                self.log(f"스크린샷 저장: {filepath}")
+
+        except Exception as e:
+            messagebox.showerror("오류", f"스크린샷 실패: {e}")
+
+    def show_current_url(self):
+        """현재 URL 표시"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        try:
+            url = self.browser_connector.get_current_url()
+            messagebox.showinfo("현재 URL", url)
+            self.log(f"현재 URL: {url}")
+        except Exception as e:
+            messagebox.showerror("오류", f"URL 조회 실패: {e}")
+
+    def execute_javascript(self):
+        """JavaScript 실행"""
+        if not self.browser_connector:
+            messagebox.showerror("오류", "먼저 브라우저를 연결하세요")
+            return
+
+        js_code = self.js_text.get("1.0", tk.END).strip()
+        if not js_code or js_code == "// 예시: document.title":
+            messagebox.showerror("오류", "JavaScript 코드를 입력하세요")
+            return
+
+        try:
+            result = self.browser_connector.execute_script(js_code)
+
+            # 결과 표시
+            self.js_result_text.delete("1.0", tk.END)
+            self.js_result_text.insert("1.0", f"결과:\n{result}")
+
+            self.log(f"JavaScript 실행 완료")
+
+        except Exception as e:
+            self.js_result_text.delete("1.0", tk.END)
+            self.js_result_text.insert("1.0", f"오류:\n{e}")
+            messagebox.showerror("오류", f"JavaScript 실행 실패: {e}")
 
     def log(self, message: str):
         """로그 추가"""
